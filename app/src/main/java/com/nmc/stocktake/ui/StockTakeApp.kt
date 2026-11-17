@@ -417,6 +417,13 @@ private fun ItemCard(sheet: StockSheet, item: StockSheet.Item) {
                     color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
             }
             Text(item.name, style = MaterialTheme.typography.headlineSmall)
+            if (item.countedBy.isNotBlank()) {
+                Text(if (sheet.mode == StockSheet.Mode.STOCK_TAKE)
+                        "Already counted on ${item.countedBy}. Count it again only to check - the web app compares the two."
+                    else "Already checked on ${item.countedBy}. Check it again only if needed - the web app compares the two.",
+                    Modifier.fillMaxWidth().background(Color(0xFFE0ECFF)).padding(8.dp),
+                    style = MaterialTheme.typography.bodySmall)
+            }
             val sub = listOf(item.code, item.group).filter { it.isNotBlank() }.joinToString("  ·  ")
             if (sub.isNotEmpty()) Text(sub, style = MaterialTheme.typography.bodySmall)
             if (sheet.mode == StockSheet.Mode.STOCK_TAKE) {
@@ -640,7 +647,9 @@ private fun ItemList(sheet: StockSheet, rev: Long, linkingBarcode: String?, onPi
                             .filterNotNull().joinToString("  ·  ")
                         if (sub.isNotEmpty()) Text(sub, style = MaterialTheme.typography.bodySmall)
                     }
-                    val right = if (sheet.mode == StockSheet.Mode.STOCK_TAKE)
+                    val right = if (row.countedBy.isNotBlank() && row.counted == null && !StockSheet.mine(row))
+                        row.countedBy
+                    else if (sheet.mode == StockSheet.Mode.STOCK_TAKE)
                         (row.counted?.toString() ?: "-") + " / ${row.onSystem ?: "-"}"
                     else if (row.done) "checked" else "-"
                     Text(right, color = if (sheet.isDone(row)) MaterialTheme.colorScheme.secondary else Color.Gray)

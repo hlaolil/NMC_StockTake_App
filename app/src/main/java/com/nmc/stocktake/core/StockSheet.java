@@ -34,6 +34,7 @@ public final class StockSheet {
         public String fileExpiry = "", fileBatch = "";   // as imported, to tell what changed
         public String qty = "", packSize = "", packPrice = "";  // packSize: both modes
         public String line = "", invoiceQty = "";        // receiving: the web's line number, the invoiced units
+        public String countedBy = "";                    // other phones that already did this one
         public String location = "", fileLocation = "";  // shelf, e.g. "B3"
         public String barcode = "", fileBarcode = "";    // scanned off the box
         public boolean done;                // receiving: this line checked
@@ -87,6 +88,7 @@ public final class StockSheet {
             Integer qn = wholeNumber(q);                    // "56.0" from a spreadsheet is 56
             it.qty = it.invoiceQty = qn != null ? String.valueOf(qn) : q;
             it.line = cols.get(row, SheetColumns.LINE);
+            it.countedBy = cols.get(row, SheetColumns.COUNTED_BY);
             if (mode == Mode.RECEIVING && isYes(cols.get(row, SheetColumns.CHECKED))) {
                 // Checked before (this phone or another): carry on from there.
                 it.done = true;
@@ -143,15 +145,37 @@ public final class StockSheet {
                     "Price per pack", "Batch", "Expiry date", "Barcode", "Note", "Checked")));
             for (Item it : items) {
                 sb.append(Csv.line(Arrays.asList(it.line, it.code, it.name, it.qty, it.packSize, it.packPrice,
-                        it.batch, it.expiry, it.barcode, it.note, it.done ? "yes" : "")));
+                        it.batch, it.expiry, it.barcode, it.note, mine(it) ? "yes" : "")));
             }
         }
         return sb.toString();
     }
 
+    /**
+     * Receiving: a line this phone checked itself. A line another phone
+     * checked comes in already checked, and is not sent back as this
+     * phone's check - unless it is checked again here (which clears
+     * countedBy), when the two are compared on the web.
+     */
+    public static boolean mine(Item it) {
+        return it.done && it.countedBy.isEmpty();
+    }
+
+    /**
+     * The next item after `from` that no other phone has done, for moving on
+     * after saving: walking a shelf, items another phone counted are passed
+     * over. -1 if there is none.
+     */
+    public int nextFree(int from) {
+        for (int i = from + 1; i < items.size(); i++) {
+            if (items.get(i).countedBy.isEmpty()) return i;
+        }
+        return -1;
+    }
+
     public int countDone() {
         int n = 0;
-        for (Item it : items) if (mode == Mode.STOCK_TAKE ? it.counted != null : it.done) n++;
+        for (Item it : items) if (isDone(it)) n++;
         return n;
     }
 
@@ -186,7 +210,9 @@ public final class StockSheet {
         return code == null ? "" : code.replaceAll("[^0-9A-Za-z]", "");
     }
 
+    /** Done here, or by another phone. */
     public boolean isDone(Item it) {
+        if (!it.countedBy.isEmpty()) return true;
         return mode == Mode.STOCK_TAKE ? it.counted != null : it.done;
     }
 }

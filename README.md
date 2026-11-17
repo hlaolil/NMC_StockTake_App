@@ -33,6 +33,14 @@ and at the end **Save File** or **Share**, then upload it there with Read Spread
 - **Next not counted / Find an item** (by name, code or shelf) to jump around.
 - Everything is kept on the phone as you go, so closing the app loses nothing.
 
+## Several phones at once
+
+Link each phone (each gets its own code). Phones can count the same stock take, or check the same
+delivery, at the same time. An item another phone has already done shows *Already counted on ...*,
+and Save & Next passes over it, so the phones share the work out by themselves. Counting it again on
+purpose is allowed: if the figures differ, the web app flags it in red with both figures and does not
+post it until it is counted again.
+
 ## Receiving
 
 **Linked:** open the delivery on the web app's Receive page and upload its invoice as usual. On the

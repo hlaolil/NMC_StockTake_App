@@ -137,6 +137,7 @@ class StockTakeViewModel(app: Application) : AndroidViewModel(app) {
         }
         it.countText = countText.trim()
         it.counted = counted
+        if (counted != null) it.countedBy = ""   // counted here too: the web compares the two
         it.expiry = expiry.trim(); it.batch = batch.trim(); it.note = note.trim()
         it.location = location.trim().uppercase()
         if (thenNext) moveOn(s) else changed()
@@ -150,6 +151,7 @@ class StockTakeViewModel(app: Application) : AndroidViewModel(app) {
         val sys = it.onSystem ?: return "This sheet has no system figure for the item - type the count"
         it.countText = sys.toString()
         it.counted = sys
+        it.countedBy = ""
         it.expiry = expiry.trim(); it.batch = batch.trim(); it.note = note.trim()
         it.location = location.trim().uppercase()
         moveOn(s)
@@ -169,6 +171,7 @@ class StockTakeViewModel(app: Application) : AndroidViewModel(app) {
         it.qty = units?.toString() ?: ""
         it.expiry = expiry.trim(); it.batch = batch.trim(); it.note = note.trim()
         it.done = checked
+        if (checked) it.countedBy = ""
         if (checked) moveOn(s) else changed()
         return null
     }
@@ -261,10 +264,15 @@ class StockTakeViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    /** After saving: the next item no other phone has done. */
     private fun moveOn(s: UiState) {
-        val n = s.sheet?.items?.size ?: 0
-        changed(if (s.index + 1 < n) s.index + 1 else s.index,
-            if (s.index + 1 >= n) "That was the last item - export when ready" else null)
+        val next = s.sheet?.nextFree(s.index) ?: -1
+        val skipped = if (next > s.index + 1) next - s.index - 1 else 0
+        if (next < 0) {
+            changed(s.index, "That was the last item - send or export when ready")
+        } else {
+            changed(next, if (skipped > 0) "Passed over $skipped item(s) another phone has done" else null)
+        }
     }
 
     // ---- Exporting -------------------------------------------------------
