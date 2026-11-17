@@ -197,6 +197,30 @@ public class CoreCheck {
         check("so the difference still shows", "Short by 10 (invoice 100)".equals(StockSheet.invoiceDifference(ag.items.get(1))), "");
         check("and the line numbers are the web's own, not positions", ag.items.get(1).line.equals("4"), ag.items.get(1).line);
         check("Next not checked goes to the line still to do", ag.nextOpen(0) == 2, ag.nextOpen(0));
+
+        System.out.println("\n--- Several phones ---");
+        String shared = "Code,Medication,On system,Physical count,Expiry date,Batch,Note,Group,Location,Pack size,Barcode,Counted by\n"
+                + "M1,Item A,10,,,,,,A1,1,,\n"
+                + "M2,Item B,10,,,,,,A2,1,,Samsung\n"
+                + "M3,Item C,10,,,,,,A3,1,,Samsung\n"
+                + "M4,Item D,10,7,,,,,A4,1,,\n";
+        StockSheet sh = StockSheet.fromCsv(shared, StockSheet.Mode.STOCK_TAKE);
+        check("items another phone counted are read as done here", sh.isDone(sh.items.get(1)) && !sh.isDone(sh.items.get(0))
+                && sh.items.get(1).countedBy.equals("Samsung"), "");
+        check("this phone's own earlier count comes back", Objects.equals(sh.items.get(3).counted, 7), sh.items.get(3).counted);
+        check("moving on from A passes over B and C to D", sh.nextFree(0) == 3, sh.nextFree(0));
+        check("and Next not counted does too", sh.nextOpen(0) == -1 || sh.nextOpen(0) == 0, sh.nextOpen(0));
+        check("progress counts the other phone's items", sh.countDone() == 3, sh.countDone());
+        List<List<String>> se = Csv.parse(sh.toCsv());
+        check("only this phone's counts are sent", se.size() == 2 && se.get(1).get(1).equals("Item D"), se);
+        String lines2 = "Line,Medication,Quantity,Pack size,Checked,Received,Checked by\n"
+                + "1,Item A,10,1,yes,10,Samsung\n2,Item B,5,1,,,\n";
+        StockSheet rv = StockSheet.fromCsv(lines2, StockSheet.Mode.RECEIVING);
+        check("a line another phone checked arrives checked, but is not sent as this phone's check",
+                rv.items.get(0).done && !StockSheet.mine(rv.items.get(0))
+                && Csv.parse(rv.toCsv()).get(1).get(10).isEmpty(), Csv.parse(rv.toCsv()).get(1));
+        rv.items.get(0).countedBy = ""; // checked again here
+        check("checked again here, it is sent", Csv.parse(rv.toCsv()).get(1).get(10).equals("yes"), "");
         System.out.println("\n=========  " + pass + " passed, " + fail + " failed  =========");
         if (fail > 0) System.exit(1);
     }

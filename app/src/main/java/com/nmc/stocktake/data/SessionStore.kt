@@ -31,7 +31,7 @@ class SessionStore(context: Context) {
                 put("qty", it.qty); put("packSize", it.packSize); put("packPrice", it.packPrice)
                 put("location", it.location); put("fileLocation", it.fileLocation)
                 put("barcode", it.barcode); put("fileBarcode", it.fileBarcode)
-                put("line", it.line); put("invoiceQty", it.invoiceQty)
+                put("line", it.line); put("invoiceQty", it.invoiceQty); put("countedBy", it.countedBy)
                 put("done", it.done)
             })
         }
@@ -72,6 +72,7 @@ class SessionStore(context: Context) {
                     location = o.optString("location"); fileLocation = o.optString("fileLocation")
                     barcode = o.optString("barcode"); fileBarcode = o.optString("fileBarcode")
                     line = o.optString("line"); invoiceQty = o.optString("invoiceQty")
+                    countedBy = o.optString("countedBy")
                     done = o.optBoolean("done")
                 })
             }
