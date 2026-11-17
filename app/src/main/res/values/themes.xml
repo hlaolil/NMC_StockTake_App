@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- A plain platform theme for the window; the screens themselves are
+         drawn by Compose (StockTakeTheme), so no extra library is needed. -->
+    <style name="Theme.StockTake" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:statusBarColor">#0056B3</item>
+        <item name="android:windowBackground">#F7F9FC</item>
+    </style>
+</resources>
