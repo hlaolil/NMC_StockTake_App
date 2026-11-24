@@ -622,7 +622,7 @@ private fun ItemList(sheet: StockSheet, rev: Long, linkingBarcode: String?, onPi
                     || row.location.equals(query.trim(), true))
         }
     }
-    Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    Column(Modifier.fillMaxSize().safeDrawingPadding().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
             Text(if (linkingBarcode != null) "Which item is barcode $linkingBarcode?" else "Find an item",
                 style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))

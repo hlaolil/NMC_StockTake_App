@@ -56,7 +56,7 @@ fun ScanScreen(
     }
     if (!allowed) {
         Column(
-            Modifier.fillMaxSize().padding(24.dp),
+            Modifier.fillMaxSize().safeDrawingPadding().padding(24.dp),
             verticalArrangement = Arrangement.Center,
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
@@ -112,7 +112,7 @@ fun ScanScreen(
         )
         Column(
             Modifier.align(Alignment.TopCenter).fillMaxWidth()
-                .background(Color(0xAA000000)).padding(12.dp),
+                .background(Color(0xAA000000)).statusBarsPadding().padding(12.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Text(title, color = Color.White, style = MaterialTheme.typography.titleMedium)
@@ -120,7 +120,7 @@ fun ScanScreen(
         }
         Column(
             Modifier.align(Alignment.BottomCenter).fillMaxWidth()
-                .background(Color(0xAA000000)).padding(20.dp),
+                .background(Color(0xAA000000)).navigationBarsPadding().padding(20.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             TextButton(onClick = onCancel) { Text("Cancel", color = Color.White) }
