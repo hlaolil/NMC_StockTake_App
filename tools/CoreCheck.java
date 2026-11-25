@@ -74,6 +74,17 @@ public class CoreCheck {
                 {"BATCH NO. EXP 05/2028", "", "05/2028"},                   // no batch printed after the word
                 {"Lot: 24J048  Exp: 09/2027  Mfd: 09/2024", "24J048", "09/2027"},
                 {"Ch.-B.: 85414 Verw. bis 01/2027", "85414", "01/2027"},
+                // as the camera often reads them in a pharmacy:
+                {"BATCH: K2201 EXP.03/2027", "K2201", "03/2027"},          // full stop straight before the date
+                {"B.NO. 7781 EXP-03/2027.", "7781", "03/2027"},            // dash before, full stop after
+                {"Batch 5512 Exp 03 / 2027", "5512", "03/2027"},           // spaces round the slash
+                {"LOT 9921 EXP 03 2027", "9921", "03/2027"},               // spaces only
+                {"LOT 9921 EXP DATE:31 03 2027", "9921", "31/03/2027"},
+                {"Lot 66A1 Exp: 0l/2O28", "66A1", "01/2028"},              // l and O for 1 and 0
+                {"EXP 03|2027 BATCH 4410", "4410", "03/2027"},
+                {"EXP:03,2027", "", "03/2027"},
+                {"Lot.123EXP.03/2027", "123", "03/2027"},                  // run together
+                {"BATCH NO.\nMFG DATE\nEXP DATE\n250306\n03/2025\n02/2028", "", "02/2028"}, // a table: words, then values
         };
         for (String[] l : labels) {
             String b = LabelReader.batch(l[0]), e = LabelReader.expiry(l[0]);

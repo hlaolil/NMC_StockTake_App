@@ -463,8 +463,14 @@ private fun LabelNote(r: OcrProcessor.LabelResult) {
         r.batch.takeIf { it.isNotBlank() }?.let { "batch $it" },
         r.expiry.takeIf { it.isNotBlank() }?.let { "expiry $it" },
     )
-    val text = if (found.isEmpty()) "Nothing readable as a batch or expiry - type them from the box."
+    var text = if (found.isEmpty()) "Nothing readable as a batch or expiry - type them from the box."
                else "Read from the label: ${found.joinToString(", ")}. Check them against the box."
+    // When something was missed, show what the camera saw, so the date can be typed
+    // from it or the photo retaken closer.
+    if (r.batch.isBlank() || r.expiry.isBlank()) {
+        val seen = r.rawText.replace('\n', ' ').trim()
+        if (seen.isNotEmpty()) text += "\nThe camera read: \"${seen.take(160)}${if (seen.length > 160) "..." else ""}\""
+    }
     Text(text, Modifier.fillMaxWidth().background(Color(0xFFFFF7E0)).padding(10.dp),
         style = MaterialTheme.typography.bodyMedium)
 }

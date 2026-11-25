@@ -26,8 +26,14 @@ public final class LabelReader {
     private static final String[] MONTHS = {"JAN", "FEB", "MAR", "APR", "MAY", "JUN",
             "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"};
 
-    private static final Pattern EXP_WORD = Pattern.compile(
-            "(EXP(IRY)?(\\s*DATE)?|EXPIRES?|EXPIRATION|USE\\s*BY|USE\\s*BEFORE|BEST\\s*BEFORE|E\\.?D\\.?|VERV(AL)?(\\s*DATUM)?)\\W*$");
+    private static final String EXP_CORE =
+            "(?:EXP(?:IRY)?(?:\\W{0,2}DATE)?|EXPIRES?|EXPIRATION|USE\\s*BY|USE\\s*BEFORE|BEST\\s*BEFORE|E\\.?D\\.?|VERV(?:AL)?(?:\\s*DATUM)?)";
+    private static final Pattern EXP_WORD = Pattern.compile(EXP_CORE + "\\W*$");
+    // "EXP 31 03 2027" / "EXP 03 2027": digits split by spaces only, straight after the word
+    private static final Pattern EXP_SPACED_DMY = Pattern.compile(
+            "((?<![A-Z])" + EXP_CORE + "\\W*?)([0-3]?[0-9]) +([01]?[0-9]) +((?:20)?[0-9]{2})(?![0-9])");
+    private static final Pattern EXP_SPACED_MY = Pattern.compile(
+            "((?<![A-Z])" + EXP_CORE + "\\W*?)([01]?[0-9]) +((?:20)?[0-9]{2})(?![0-9])");
     private static final Pattern MFG_WORD = Pattern.compile(
             "(MFG|MFD|MNF|MANUF(ACTURED)?(\\s*(ON|DATE))?|MANUFACTURING(\\s*DATE)?|M\\.?D\\.?|DOM|PROD(UCTION)?(\\s*DATE)?|PACKED(\\s*ON)?|VERV\\s*DAT)\\W*$");
 
@@ -36,9 +42,9 @@ public final class LabelReader {
     // 2027-03-31
     private static final Pattern YMD = Pattern.compile("(?<![0-9])(20[0-9]{2})[./-]([01]?[0-9])[./-]([0-3]?[0-9])(?![0-9])");
     // 03/2027  03-27  3.2027
-    private static final Pattern MY = Pattern.compile("(?<![0-9./-])([01]?[0-9])[./-]((?:20)?[0-9]{2})(?![0-9./-])");
+    private static final Pattern MY = Pattern.compile("(?<![0-9])(?<![0-9][./-])([01]?[0-9])[./-]((?:20)?[0-9]{2})(?![0-9])(?![./-][0-9])");
     // 2027-03  2027/03
-    private static final Pattern YM = Pattern.compile("(?<![0-9./-])(20[0-9]{2})[./-]([01]?[0-9])(?![0-9./-])");
+    private static final Pattern YM = Pattern.compile("(?<![0-9])(?<![0-9][./-])(20[0-9]{2})[./-]([01]?[0-9])(?![0-9])(?![./-][0-9])");
     // MAR 2027  MAR-27  MARCH 2027  31 MAR 2027
     private static final Pattern MON_Y = Pattern.compile(
             "(?<![A-Z0-9])(?:([0-3]?[0-9])\\s*[ ./-]?\\s*)?(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)[A-Z]*\\.?\\s*[ ./-]?\\s*((?:20)?[0-9]{2})(?![0-9])");
@@ -70,6 +76,53 @@ public final class LabelReader {
             if ((c == 'O') && digitBefore && digitAfter) sb.setCharAt(i, '0');
         }
         return sb.toString();
+    }
+
+    /**
+     * Tidy the text for finding dates: letters the camera reads in place of
+     * digits inside a date (O D Q -> 0, I L | -> 1, S -> 5, Z -> 2, B -> 8),
+     * stray spaces around a / or . ("03 / 2027"), other strokes used as a
+     * separator ("03|2027", "03\\2027", "03,2027"), and dates printed with
+     * spaces only, straight after the expiry word ("EXP 03 2027").
+     * Only for dates: the batch is read from the plain cleaned text.
+     */
+    static String forDates(String raw) {
+        // strokes used as a separator first, so "03|2027" is not read as 0312027
+        StringBuilder sb = new StringBuilder(
+                clean(raw).replaceAll("(?<=[0-9]) *[|\\\\,] *(?=[0-9])", "/"));
+        for (int pass = 0; pass < 2; pass++) {          // twice, so "OI/2O27" settles
+            for (int i = 0; i < sb.length(); i++) {
+                char d = digitFor(sb.charAt(i));
+                if (d == 0) continue;
+                char p = i > 0 ? sb.charAt(i - 1) : ' ', n = i + 1 < sb.length() ? sb.charAt(i + 1) : ' ';
+                boolean pd = Character.isDigit(p), nd = Character.isDigit(n);
+                boolean ps = pd || isSep(p) || p == ' ' || p == ':', ns = nd || isSep(n) || n == ' ' || n == '\n';
+                // a digit on one side, and a digit or separator on the other
+                if ((pd && ns && (nd || isSep(n))) || (nd && ps && (pd || isSep(p)))
+                        || (pd && nd)) sb.setCharAt(i, d);
+            }
+        }
+        String t = sb.toString();
+        t = t.replaceAll("(?<=[0-9]) *([/.]) +(?=[0-9])", "$1");
+        t = t.replaceAll("(?<=[0-9]) +([/.]) *(?=[0-9])", "$1");
+        t = EXP_SPACED_DMY.matcher(t).replaceAll("$1$2/$3/$4");
+        t = EXP_SPACED_MY.matcher(t).replaceAll("$1$2/$3");
+        return t;
+    }
+
+    private static boolean isSep(char c) {
+        return c == '/' || c == '.' || c == '-';
+    }
+
+    private static char digitFor(char c) {
+        switch (c) {
+            case 'O': case 'D': case 'Q': return '0';
+            case 'I': case 'L': case '|': return '1';
+            case 'S': return '5';
+            case 'Z': return '2';
+            case 'B': return '8';
+            default: return 0;
+        }
     }
 
     static int year(String y) {
@@ -144,7 +197,7 @@ public final class LabelReader {
     /** The expiry printed on the label, or "" if there is none to be sure of. */
     public static String expiry(String rawText) {
         if (rawText == null) return "";
-        String t = clean(rawText);
+        String t = forDates(rawText);
         List<Found> all = dates(t);
         Found best = null;
         List<Found> unlabelled = new ArrayList<>();
@@ -176,7 +229,10 @@ public final class LabelReader {
             String v = m.group(1);
             if (v.matches("(NO|NUMBER|EXP|MFG|MFD|DATE)")) continue;
             if (!v.matches(".*[0-9].*")) continue;      // a batch number has a digit in it
-            return v.replaceAll("[-/]+$", "");
+            // "LOT.123EXP.03/2027": the camera ran the batch into the next word
+            v = v.replaceAll("(EXP|MFG|MFD|MNF).*$", "");
+            v = v.replaceAll("[-/]+$", "");
+            if (v.length() >= 2 && v.matches(".*[0-9].*")) return v;
         }
         return "";
     }
