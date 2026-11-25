@@ -50,6 +50,14 @@ each box: **Scan Barcode** to jump to its line, enter the units received (`2p` f
 once. **Send to Web App** fills the delivery's lines; differences are in red there with the note,
 and nothing is received until **Add These Lines** is pressed on the delivery page.
 
+**When the invoice names an item its own way** (e.g. `AMOXIL 500MG CAPS 28S` for our
+`Amoxicillin caps, 500 mg`), the line shows in red: *the invoice calls it ... - not one of our items*.
+Tap **Pick our item**: the phone shows our items most like the invoice's name (or search by name or
+code); pick the right one. The line goes back to the web app under our name and code. Once that line
+is added on the delivery page, the web app remembers the invoice's name for the item, so the next
+invoice that uses it is matched by itself. A line the web app only guessed shows in yellow to be
+checked, with **Not this - pick our item**.
+
 It need not be done in one go. Send as often as you like; each send fills in only the lines checked.
 On the delivery page, lines not yet checked on the phone start unticked, and Add These Lines leaves
 them waiting, so part of an invoice can be received now and the rest later. Getting the lines again

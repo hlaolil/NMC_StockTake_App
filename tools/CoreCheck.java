@@ -92,7 +92,36 @@ public class CoreCheck {
                     + ", expiry " + (l[2].isEmpty() ? "none" : l[2]), b.equals(l[1]) && e.equals(l[2]), "batch=" + b + " expiry=" + e);
         }
 
-        System.out.println("\n--- The sheet: import and export ---");
+        System.out.println("\n--- Receiving: the invoice names it its own way ---");
+        String invLines = "Line,Code,Medication,Quantity,Pack size,Price per pack,Batch,Expiry date,Barcode,Note,Checked,Received,Checked by,Invoice name,On list\r\n"
+                + "1,,AMOXIL 500MG CAPS 28S,56,1,40,,,,,,,,AMOXIL 500MG CAPS 28S,no\r\n"
+                + "2,MED-0001,\"Paracetamol tabs, 500 mg\",100,1,0.5,,,,,,,,PANADO 500MG,yes\r\n"
+                + "3,MED-0003,\"Cetirizine tabs, 10 mg\",30,1,0.2,,,,,,,,CETRIZINE 10MG TABS,check\r\n";
+        StockSheet rs = StockSheet.fromCsv(invLines, StockSheet.Mode.RECEIVING);
+        StockSheet.Item amox = rs.items.get(0);
+        check("a line not on our list is marked", amox.needsOurItem() && !rs.items.get(1).needsOurItem(), amox.onList);
+        check("a guessed line is marked for checking", rs.items.get(2).guessed(), rs.items.get(2).onList);
+        check("the invoice's name is kept", rs.items.get(1).invoiceName.equals("PANADO 500MG"), rs.items.get(1).invoiceName);
+        List<StockSheet.OurItem> ours = StockSheet.ourItems("Code,Medication,Pack size,Barcode\r\n"
+                + "MED-0001,\"Paracetamol tabs, 500 mg\",1,\r\n"
+                + "MED-0002,\"Amoxicillin caps, 500 mg\",28,6001\r\n"
+                + "MED-0004,\"Amoxicillin caps, 250 mg\",28,\r\n"
+                + "MED-0003,\"Cetirizine tabs, 10 mg\",1,\r\n");
+        check("our list is read", ours.size() == 4 && ours.get(1).packSize.equals("28"), ours.size());
+        List<StockSheet.OurItem> like = StockSheet.likely(ours, "AMOXIL 500MG CAPS 28S", 3);
+        check("the likeliest of ours comes first, the same strength above another",
+                !like.isEmpty() && like.get(0).code.equals("MED-0002"), like.isEmpty() ? "none" : like.get(0).name);
+        StockSheet.putOnOurItem(amox, "MED-0002", "Amoxicillin caps, 500 mg");
+        check("put on our item: our name and code, the invoice's name kept",
+                !amox.needsOurItem() && amox.code.equals("MED-0002") && amox.name.equals("Amoxicillin caps, 500 mg")
+                        && amox.invoiceName.equals("AMOXIL 500MG CAPS 28S"), amox.name);
+        amox.done = true;
+        List<List<String>> sent = Csv.parse(rs.toCsv());
+        check("the line goes back under our name and code",
+                sent.get(1).get(0).equals("1") && sent.get(1).get(1).equals("MED-0002")
+                        && sent.get(1).get(2).equals("Amoxicillin caps, 500 mg"), sent.get(1));
+
+
         String countSheet = "Code,Medication,On system,Physical count,Expiry date,Batch,Note,Group\r\n"
                 + "MED-0001,\"Amlodipine tablets, 10 mg\",1998,,30/11/2028,1128,,Pharmaceuticals\r\n"
                 + "MED-0002,\"Crepe bandage, 150 mm\",24,,31/12/2027,000,,Medical Supplies\r\n"

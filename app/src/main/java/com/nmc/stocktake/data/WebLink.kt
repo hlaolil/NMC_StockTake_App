@@ -75,6 +75,9 @@ class WebLink(context: Context) {
     suspend fun deliveryLines(id: String): String =
         call("GET", "/api/phone/delivery/" + URLEncoder.encode(id, "UTF-8") + "/lines", null)
 
+    /** Our medication list as CSV (Code, Medication, Pack size, Barcode), to put invoice lines on our items. */
+    suspend fun medications(): String = call("GET", "/api/phone/medications", null)
+
     /** Send the lines as checked; returns the web app's message. */
     suspend fun sendDelivery(id: String, csv: String): String =
         JSONObject(call("POST", "/api/phone/delivery/" + URLEncoder.encode(id, "UTF-8") + "/lines", csv))

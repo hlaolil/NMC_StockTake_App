@@ -55,6 +55,7 @@ fun StockTakeApp(vm: StockTakeViewModel = viewModel()) {
 
     var camera by remember { mutableStateOf<CameraFor?>(null) }
     var showList by remember { mutableStateOf(false) }
+    var pickOurs by remember { mutableStateOf(false) }   // putting an invoice line on our item
     var lastLabel by remember { mutableStateOf<OcrProcessor.LabelResult?>(null) }
     var confirmMatch by remember { mutableStateOf(false) }
     var unknownBarcode by remember { mutableStateOf<String?>(null) }   // scanned, on no item yet
@@ -130,6 +131,15 @@ fun StockTakeApp(vm: StockTakeViewModel = viewModel()) {
         return
     }
 
+    if (pickOurs) {
+        BackHandler { pickOurs = false }
+        OurItemPicker(state.item, state.ourItems, state.busy,
+            onPick = { o -> vm.putOnOurItem(o); pickOurs = false },
+            onRetry = { vm.loadOurItems() },
+            onClose = { pickOurs = false })
+        return
+    }
+
     if (showList) {
         BackHandler { showList = false; linkingBarcode = null }
         ItemList(sheet, state.rev, linkingBarcode,
@@ -150,6 +160,10 @@ fun StockTakeApp(vm: StockTakeViewModel = viewModel()) {
         ) {
             Header(sheet, state.index, state.rev, onScan = { camera = CameraFor.BARCODE })
             ItemCard(sheet, item)
+            if (sheet.mode == StockSheet.Mode.RECEIVING) {
+                InvoiceName(item, canPick = state.webDelivery.isNotBlank() && state.linked,
+                    onPick = { vm.loadOurItems(); pickOurs = true })
+            }
             ExpiryWarning(draft.expiry)
             lastLabel?.let { LabelNote(it) }
 
@@ -447,6 +461,83 @@ private fun ItemCard(sheet: StockSheet, item: StockSheet.Item) {
     }
 }
 
+/**
+ * Receiving: the invoice names the item its own way. A line not on our list
+ * must be put on our item before it is checked; a line the web app matched
+ * by a guess is shown to be confirmed.
+ */
+@Composable
+private fun InvoiceName(item: StockSheet.Item, canPick: Boolean, onPick: () -> Unit) {
+    val differs = item.invoiceName.isNotBlank() && !item.invoiceName.equals(item.name, ignoreCase = true)
+    when {
+        item.needsOurItem() -> Column(Modifier.fillMaxWidth().background(Color(0xFFFDE2E2)).padding(10.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text("The invoice calls it \"${item.invoiceName.ifBlank { item.name }}\" - that is not one of our items.",
+                color = Color(0xFF9B1C1C), fontWeight = FontWeight.Bold)
+            if (canPick) {
+                Text("Pick our item for it. The web app remembers this name for the next invoice.",
+                    style = MaterialTheme.typography.bodySmall)
+                Button(onClick = onPick, modifier = Modifier.fillMaxWidth()) { Text("Pick our item") }
+            } else {
+                Text("Correct the name on the delivery page, or add the item under Add Medication.",
+                    style = MaterialTheme.typography.bodySmall)
+            }
+        }
+        item.guessed() -> Column(Modifier.fillMaxWidth().background(Color(0xFFFFF1D6)).padding(10.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text("The invoice calls it \"${item.invoiceName}\". The web app took it to be this item - check the box.",
+                color = Color(0xFF7A4B00))
+            if (canPick) OutlinedButton(onClick = onPick, modifier = Modifier.fillMaxWidth()) {
+                Text("Not this - pick our item")
+            }
+        }
+        differs -> Text("On the invoice: ${item.invoiceName}", style = MaterialTheme.typography.bodySmall)
+    }
+}
+
+/** Our medication list, to put an invoice line on one of our items. */
+@Composable
+private fun OurItemPicker(
+    item: StockSheet.Item?, ours: List<StockSheet.OurItem>, busy: String?,
+    onPick: (StockSheet.OurItem) -> Unit, onRetry: () -> Unit, onClose: () -> Unit,
+) {
+    val invoiceName = item?.let { i -> i.invoiceName.ifBlank { i.name } } ?: ""
+    var query by remember { mutableStateOf("") }
+    val likely = remember(ours, invoiceName) { StockSheet.likely(ours, invoiceName, 5) }
+    val rows = remember(ours, query) {
+        if (query.isBlank()) emptyList()
+        else ours.filter { it.name.contains(query.trim(), true) || it.code.equals(query.trim(), true) }
+    }
+    Column(Modifier.fillMaxSize().safeDrawingPadding().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+            Text("Which of our items is it?", style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
+            TextButton(onClick = onClose) { Text("Close") }
+        }
+        Text("On the invoice: $invoiceName", fontWeight = FontWeight.Bold)
+        busy?.let { Busy(it) }
+        if (ours.isEmpty() && busy == null) {
+            Text("Our medication list is not on the phone yet.")
+            OutlinedButton(onClick = onRetry) { Text("Get it from the web app") }
+        }
+        OutlinedTextField(query, { query = it }, label = { Text("Search our list: name or code") }, singleLine = true,
+            modifier = Modifier.fillMaxWidth())
+        val show = if (query.isBlank()) likely else rows
+        Text(if (query.isBlank()) (if (likely.isEmpty()) "Type to search" else "Most like the invoice's name:")
+             else "${rows.size} found", style = MaterialTheme.typography.bodySmall)
+        LazyColumn(Modifier.fillMaxSize()) {
+            items(show, key = { it.name }) { o ->
+                Column(Modifier.fillMaxWidth().clickable { onPick(o) }.padding(vertical = 10.dp)) {
+                    Text(o.name, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    val sub = listOfNotNull(o.code.takeIf { it.isNotBlank() },
+                        o.packSize.takeIf { it.isNotBlank() && it != "1" }?.let { "pack of $it" }).joinToString("  ·  ")
+                    if (sub.isNotEmpty()) Text(sub, style = MaterialTheme.typography.bodySmall)
+                }
+                HorizontalDivider()
+            }
+        }
+    }
+}
+
 /** Expired or within three months: said while the pack is in your hand. */
 @Composable
 private fun ExpiryWarning(expiry: String) {
@@ -657,6 +748,7 @@ private fun ItemList(sheet: StockSheet, rev: Long, linkingBarcode: String?, onPi
                         row.countedBy
                     else if (sheet.mode == StockSheet.Mode.STOCK_TAKE)
                         (row.counted?.toString() ?: "-") + " / ${row.onSystem ?: "-"}"
+                    else if (row.needsOurItem()) "pick our item"
                     else if (row.done) "checked" else "-"
                     Text(right, color = if (sheet.isDone(row)) MaterialTheme.colorScheme.secondary else Color.Gray)
                 }

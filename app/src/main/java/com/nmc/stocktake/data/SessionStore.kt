@@ -33,6 +33,7 @@ class SessionStore(context: Context) {
                 put("barcode", it.barcode); put("fileBarcode", it.fileBarcode)
                 put("line", it.line); put("invoiceQty", it.invoiceQty); put("countedBy", it.countedBy)
                 put("done", it.done)
+                put("invoiceName", it.invoiceName); put("onList", it.onList)
             })
         }
         val root = JSONObject().apply {
@@ -74,6 +75,7 @@ class SessionStore(context: Context) {
                     line = o.optString("line"); invoiceQty = o.optString("invoiceQty")
                     countedBy = o.optString("countedBy")
                     done = o.optBoolean("done")
+                    invoiceName = o.optString("invoiceName"); onList = o.optString("onList")
                 })
             }
             val sheet = StockSheet(StockSheet.Mode.valueOf(root.getString("mode")), items)

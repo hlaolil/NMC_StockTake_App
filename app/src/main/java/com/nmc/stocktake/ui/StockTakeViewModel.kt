@@ -40,6 +40,7 @@ class StockTakeViewModel(app: Application) : AndroidViewModel(app) {
         val busy: String? = null,             // "Sending...", while the web app is asked
         val deliveries: List<WebLink.Delivery> = emptyList(),  // open on the web app
         val webDelivery: String = "",         // the delivery this receiving list came from
+        val ourItems: List<StockSheet.OurItem> = emptyList(),  // our medication list, for invoice names not ours
     ) {
         val item: StockSheet.Item? get() = sheet?.items?.getOrNull(index)
     }
@@ -162,6 +163,9 @@ class StockTakeViewModel(app: Application) : AndroidViewModel(app) {
     fun saveReceived(qty: String, expiry: String, batch: String, note: String, checked: Boolean): String? {
         val s = _state.value
         val it = s.item ?: return null
+        if (checked && it.needsOurItem()) {
+            return "The invoice calls this \"${it.name}\", which is not one of our items - tap Pick our item first"
+        }
         // Packs work here too: "2p" with packs of 28 is 56 units.
         val units = try {
             CountExpression.evaluate(qty, it.packUnits())
@@ -229,7 +233,34 @@ class StockTakeViewModel(app: Application) : AndroidViewModel(app) {
         ask("Getting the invoice lines...") {
             val text = web.deliveryLines(d.id)
             load(text, StockSheet.Mode.RECEIVING, "${d.reference}.csv", d.id)
+            val sheet = _state.value.sheet
+            if (sheet != null && sheet.items.any { it.needsOurItem() || it.guessed() }) {
+                try {
+                    _state.value = _state.value.copy(ourItems = StockSheet.ourItems(web.medications()))
+                } catch (e: Exception) { /* fetched again when Pick our item is tapped */ }
+            }
         }
+    }
+
+    /** Get our medication list from the web app, for Pick our item. */
+    fun loadOurItems() {
+        if (!web.isLinked || _state.value.ourItems.isNotEmpty()) return
+        ask("Getting our medication list...") {
+            val list = StockSheet.ourItems(web.medications())
+            _state.value = _state.value.copy(ourItems = list)
+        }
+    }
+
+    /** Put the line on screen on our item: the invoice named it its own way. */
+    fun putOnOurItem(o: StockSheet.OurItem) {
+        val s = _state.value
+        val it = s.item ?: return
+        StockSheet.putOnOurItem(it, o.code, o.name)
+        if (it.packSize.isBlank() || it.packSize == "1") {
+            if (o.packSize.isNotBlank()) it.packSize = o.packSize
+        }
+        if (it.barcode.isBlank() && o.barcode.isNotBlank()) { it.barcode = o.barcode; it.fileBarcode = o.barcode }
+        changed(message = "Put on ${o.name}. The web app remembers the invoice's name for next time once the line is added.")
     }
 
     fun sendToWeb() {

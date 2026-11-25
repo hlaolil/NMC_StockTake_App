@@ -18,7 +18,8 @@ public final class SheetColumns {
             EXPIRY = "expiry", BATCH = "batch", NOTE = "note", GROUP = "group",
             QTY = "qty", PACK_SIZE = "pack_size", PACK_PRICE = "pack_price",
             LOCATION = "location", BARCODE = "barcode", LINE = "line",
-            RECEIVED = "received", CHECKED = "checked", COUNTED_BY = "counted_by";
+            RECEIVED = "received", CHECKED = "checked", COUNTED_BY = "counted_by",
+            INVOICE_NAME = "invoice_name", ON_LIST = "on_list";
 
     private static final Map<String, List<String>> WORDS = new HashMap<>();
     static {
@@ -43,6 +44,8 @@ public final class SheetColumns {
         WORDS.put(RECEIVED, Arrays.asList("received", "units received", "counted units"));
         WORDS.put(CHECKED, Arrays.asList("checked", "checked on phone", "done"));
         WORDS.put(COUNTED_BY, Arrays.asList("counted by", "checked by"));
+        WORDS.put(INVOICE_NAME, Arrays.asList("invoice name", "name on invoice", "supplier name"));
+        WORDS.put(ON_LIST, Arrays.asList("on list", "on our list"));
         WORDS.put(PACK_PRICE, Arrays.asList("price per pack", "pack price", "price per pack r"));
     }
 

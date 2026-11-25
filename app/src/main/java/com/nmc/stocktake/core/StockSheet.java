@@ -38,6 +38,18 @@ public final class StockSheet {
         public String location = "", fileLocation = "";  // shelf, e.g. "B3"
         public String barcode = "", fileBarcode = "";    // scanned off the box
         public boolean done;                // receiving: this line checked
+        public String invoiceName = "";     // receiving: what the invoice calls it, when not our name
+        public String onList = "";          // receiving: "yes" our item, "no" not ours yet, "check" a guess
+
+        /** Receiving: the invoice's name is not one of ours, so the line must be put on our item. */
+        public boolean needsOurItem() {
+            return onList.equalsIgnoreCase("no");
+        }
+
+        /** Receiving: the web app took the invoice's name to be this item, and wants it checked. */
+        public boolean guessed() {
+            return onList.equalsIgnoreCase("check");
+        }
 
         /** Anything entered that should go back to the web app. */
         public boolean touched() {
@@ -89,6 +101,8 @@ public final class StockSheet {
             it.qty = it.invoiceQty = qn != null ? String.valueOf(qn) : q;
             it.line = cols.get(row, SheetColumns.LINE);
             it.countedBy = cols.get(row, SheetColumns.COUNTED_BY);
+            it.invoiceName = cols.get(row, SheetColumns.INVOICE_NAME);
+            it.onList = cols.get(row, SheetColumns.ON_LIST).toLowerCase();
             if (mode == Mode.RECEIVING && isYes(cols.get(row, SheetColumns.CHECKED))) {
                 // Checked before (this phone or another): carry on from there.
                 it.done = true;
@@ -195,6 +209,73 @@ public final class StockSheet {
         if (inv == null || got == null || inv.equals(got)) return null;
         return got < inv ? "Short by " + (inv - got) + " (invoice " + inv + ")"
                          : (got - inv) + " more than the invoice (" + inv + ")";
+    }
+
+    /**
+     * Receiving: put a line the invoice names its own way on our item. What
+     * the invoice called it is kept; the web app remembers it for the next
+     * invoice once the line is added.
+     */
+    public static void putOnOurItem(Item it, String code, String name) {
+        if (it.invoiceName.isEmpty()) it.invoiceName = it.name;
+        it.code = code == null ? "" : code;
+        it.name = name;
+        it.onList = "yes";
+    }
+
+    /** One of our items, from the web app's medication list. */
+    public static final class OurItem {
+        public final String code, name, packSize, barcode;
+        public OurItem(String code, String name, String packSize, String barcode) {
+            this.code = code; this.name = name; this.packSize = packSize; this.barcode = barcode;
+        }
+    }
+
+    /** Our medication list (Code, Medication, Pack size, Barcode) as the web app sends it. */
+    public static List<OurItem> ourItems(String csv) {
+        List<List<String>> rows = Csv.parse(csv);
+        SheetColumns cols = SheetColumns.find(rows);
+        List<OurItem> out = new ArrayList<>();
+        if (cols == null) return out;
+        for (int r = cols.headerRow + 1; r < rows.size(); r++) {
+            List<String> row = rows.get(r);
+            String name = cols.get(row, SheetColumns.MED);
+            if (name.isEmpty()) continue;
+            out.add(new OurItem(cols.get(row, SheetColumns.CODE), name,
+                    cols.get(row, SheetColumns.PACK_SIZE), cols.get(row, SheetColumns.BARCODE)));
+        }
+        return out;
+    }
+
+    /**
+     * Our items most like an invoice's name, best first: shared words count,
+     * and the same strength (numbers) counts most, so "AMOXIL 500MG CAPS"
+     * puts "Amoxicillin caps, 500 mg" near the top. Only a suggestion.
+     */
+    public static List<OurItem> likely(List<OurItem> ours, String invoiceName, int limit) {
+        String[] words = invoiceName.toLowerCase().split("[^a-z0-9]+");
+        List<Object[]> scored = new ArrayList<>();
+        for (OurItem o : ours) {
+            String n = o.name.toLowerCase();
+            String bare = n.replaceAll("[^a-z0-9]", "");
+            int score = 0;
+            for (String w : words) {
+                if (w.isEmpty()) continue;
+                if (w.matches("[0-9]+.*")) {
+                    String num = w.replaceAll("[^0-9].*$", "");
+                    if (n.matches("(?s).*(?<![0-9])" + num + "(?![0-9]).*")) score += 3;
+                } else if (w.length() >= 4 && bare.contains(w.substring(0, 4))) {
+                    score += 2;                         // "amoxil" and "amoxicillin"
+                } else if (w.length() >= 3 && bare.contains(w)) {
+                    score += 1;
+                }
+            }
+            if (score > 0) scored.add(new Object[]{score, o});
+        }
+        scored.sort((a, b) -> (Integer) b[0] - (Integer) a[0]);
+        List<OurItem> out = new ArrayList<>();
+        for (int i = 0; i < scored.size() && i < limit; i++) out.add((OurItem) scored.get(i)[1]);
+        return out;
     }
 
     /** The item carrying this barcode, or -1. */
