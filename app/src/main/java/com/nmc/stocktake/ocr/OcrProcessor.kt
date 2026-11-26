@@ -1,5 +1,15 @@
 package com.nmc.stocktake.ocr
 
+import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.Color
+import android.graphics.pdf.PdfRenderer
+import android.net.Uri
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withContext
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
 import com.google.mlkit.vision.barcode.BarcodeScannerOptions
 import com.google.mlkit.vision.barcode.BarcodeScanning
 import com.google.mlkit.vision.barcode.common.Barcode
@@ -67,4 +77,51 @@ object OcrProcessor {
             .addOnFailureListener { e -> onFail(e.message ?: "The invoice could not be read") }
             .addOnCompleteListener { onFinally() }
     }
+
+    /** Read at most this many pages of a PDF: an invoice, not a catalogue. */
+    private const val PDF_PAGES = 10
+
+    /**
+     * A PDF invoice - a paper invoice scanned on a printer, or one the
+     * supplier sent: each page is drawn as a picture and read like a photo,
+     * on the phone. Throws IllegalArgumentException with a plain reason.
+     */
+    suspend fun readInvoicePdf(context: Context, uri: Uri): List<InvoiceReader.Line> {
+        val pages = withContext(Dispatchers.IO) {
+            val fd = try {
+                context.contentResolver.openFileDescriptor(uri, "r")
+            } catch (e: Exception) { null } ?: throw IllegalArgumentException("The PDF could not be opened")
+            fd.use { pfd ->
+                val renderer = try { PdfRenderer(pfd) } catch (e: Exception) {
+                    throw IllegalArgumentException("That file is not a PDF the phone can read (is it password-protected?)")
+                }
+                renderer.use { r ->
+                    (0 until minOf(r.pageCount, PDF_PAGES)).map { i ->
+                        r.openPage(i).use { page ->
+                            // About 200 dots per inch: small print stays readable, the picture stays small.
+                            val scale = minOf(2.8f, 2400f / maxOf(page.width, page.height))
+                            val bmp = Bitmap.createBitmap((page.width * scale).toInt(), (page.height * scale).toInt(),
+                                Bitmap.Config.ARGB_8888)
+                            bmp.eraseColor(Color.WHITE)          // a page is drawn on clear, not on paper
+                            page.render(bmp, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+                            bmp
+                        }
+                    }
+                }
+            }
+        }
+        if (pages.isEmpty()) throw IllegalArgumentException("The PDF has no pages")
+        val out = ArrayList<InvoiceReader.Line>()
+        for (bmp in pages) {
+            out += readInvoicePage(InputImage.fromBitmap(bmp, 0))
+            bmp.recycle()
+        }
+        return out
+    }
+
+    private suspend fun readInvoicePage(image: InputImage): List<InvoiceReader.Line> =
+        suspendCancellableCoroutine { cont ->
+            readInvoice(image, { cont.resume(it) },
+                { cont.resumeWithException(IllegalArgumentException(it)) }, onFinally = {})
+        }
 }

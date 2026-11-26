@@ -299,6 +299,15 @@ class StockTakeViewModel(app: Application) : AndroidViewModel(app) {
             message = "${fresh.size} line(s) read" + if (fresh.size < lines.size) ", ${lines.size - fresh.size} already had" else "")
     }
 
+    /** A PDF of the invoice (scanned on a printer, or sent by the supplier), read page by page on the phone. */
+    fun readInvoicePdf(uri: Uri) {
+        ask("Reading the PDF...") {
+            val lines = com.nmc.stocktake.ocr.OcrProcessor.readInvoicePdf(getApplication(), uri)
+            if (lines.isEmpty()) say("No invoice lines could be read from the PDF - scan it straight, at 200 dpi or more")
+            else addInvoiceLines(lines)
+        }
+    }
+
     fun editInvoiceLine(i: Int, line: InvoiceReader.Line) {
         val s = _state.value
         if (i in s.invoiceLines.indices) _state.value = s.copy(invoiceLines = s.invoiceLines.toMutableList().also { it[i] = line })

@@ -160,6 +160,7 @@ fun StockTakeApp(vm: StockTakeViewModel = viewModel()) {
             Scaffold(snackbarHost = { SnackbarHost(snackbar) }) { pad ->
                 InvoiceReview(Modifier.padding(pad), d, state,
                     onPhoto = { invoiceCamera = true },
+                    onPdf = { uri -> vm.readInvoicePdf(uri) },
                     onEdit = vm::editInvoiceLine, onRemove = vm::removeInvoiceLine,
                     onUnits = vm::setInvoiceUnits,
                     onSend = { vm.sendInvoice() }, onCancel = { vm.cancelInvoice() })
@@ -186,7 +187,7 @@ fun StockTakeApp(vm: StockTakeViewModel = viewModel()) {
                 onPasteLink = { code -> vm.linkWeb(code) },
                 onGetSheet = { g, label -> vm.getSheetFromWeb(g, label) },
                 onGetDelivery = { d -> vm.getDeliveryFromWeb(d) },
-                onPhotoInvoice = { d -> vm.startInvoice(d); invoiceCamera = true },
+                onPhotoInvoice = { d -> vm.startInvoice(d) },
                 onRefresh = { vm.refreshWeb() },
                 onUnlink = { vm.unlinkWeb() })
         }
@@ -475,12 +476,12 @@ private fun WebDeliveries(deliveries: List<WebLink.Delivery>, busy: Boolean, onG
                         Text("${d.reference}${if (what.isNotEmpty()) " - $what" else ""}: ${d.lines} line(s)" +
                             if (d.checked > 0) ", ${d.checked} checked" else "")
                     }
-                    TextButton(onClick = { onPhoto(d) }, enabled = !busy) { Text("Photograph the paper invoice again") }
+                    TextButton(onClick = { onPhoto(d) }, enabled = !busy) { Text("Read the invoice again (paper or PDF)") }
                 } else {
                     Text("${d.reference}${if (what.isNotEmpty()) " - $what" else ""}: no invoice lines yet.",
                         style = MaterialTheme.typography.bodySmall)
                     Button(onClick = { onPhoto(d) }, enabled = !busy, modifier = Modifier.fillMaxWidth()) {
-                        Text("Photograph the paper invoice")
+                        Text("Paper or PDF invoice: read it on the phone")
                     }
                 }
             }
@@ -595,16 +596,20 @@ private fun InvoiceName(item: StockSheet.Item, canPick: Boolean, onPick: () -> U
 @Composable
 private fun InvoiceReview(
     modifier: Modifier, d: WebLink.Delivery, state: StockTakeViewModel.UiState,
-    onPhoto: () -> Unit, onEdit: (Int, InvoiceReader.Line) -> Unit, onRemove: (Int) -> Unit,
+    onPhoto: () -> Unit, onPdf: (Uri) -> Unit, onEdit: (Int, InvoiceReader.Line) -> Unit, onRemove: (Int) -> Unit,
     onUnits: (Boolean) -> Unit, onSend: () -> Unit, onCancel: () -> Unit,
 ) {
     val lines = state.invoiceLines
+    val pdfPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
+        uri?.let(onPdf)
+    }
     val sum = lines.sumOf { (it.qty.toDoubleOrNull() ?: 0.0) * (it.price.replace(',', '.').toDoubleOrNull() ?: 0.0) }
     LazyColumn(modifier.fillMaxSize().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         item {
             Spacer(Modifier.height(8.dp))
             Text("Paper invoice for ${d.reference}", style = MaterialTheme.typography.titleLarge)
-            Text(if (lines.isEmpty()) "Photograph the invoice. A long one: a part at a time - the lines are added together."
+            Text(if (lines.isEmpty()) "Photograph the invoice (a long one a part at a time - the lines are added together), " +
+                    "or open a PDF of it: scanned on the printer, or sent by the supplier."
                  else "${lines.size} line(s) read. Check each against the paper and correct anything misread.",
                 style = MaterialTheme.typography.bodyMedium)
             state.busy?.let { Busy(it) }
@@ -615,6 +620,10 @@ private fun InvoiceReview(
             }
             OutlinedButton(onClick = onPhoto, modifier = Modifier.fillMaxWidth()) {
                 Text(if (lines.isEmpty()) "Photograph the invoice" else "Photograph more of the invoice")
+            }
+            OutlinedButton(onClick = { pdfPicker.launch(arrayOf("application/pdf")) },
+                enabled = state.busy == null, modifier = Modifier.fillMaxWidth()) {
+                Text("Open a PDF of the invoice (scanned or emailed)")
             }
         }
         items(lines.size) { i -> InvoiceLineCard(i, lines[i], onEdit, onRemove) }

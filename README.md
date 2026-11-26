@@ -47,9 +47,11 @@ post it until it is counted again.
 
 ## Receiving
 
-**Paper invoice:** on the phone's start screen, under the open delivery, tap **Photograph the paper
-invoice**. Hold the phone flat over the page; a long invoice is photographed a part at a time and the
-lines are added together. Each line shows the item, quantity, price and the supplier's code as read;
+**Paper or PDF invoice:** on the phone's start screen, under the open delivery, tap **Paper or PDF
+invoice**. Either photograph it - hold the phone flat over the page; a long invoice a part at a time,
+the lines are added together - or **Open a PDF of the invoice**: a paper invoice scanned on the
+printer (the best: flat, straight and evenly lit), or a PDF the supplier sent. Each page is read on
+the phone, like a photo. Each line shows the item, quantity, price and the supplier's code as read;
 a line whose quantity x price no longer comes to its printed total is marked to check. Choose whether
 the quantities are packs (usual) or single units, correct anything misread, and **Send**: the lines go
 to the delivery as if the invoice had been uploaded, and come straight back to check box by box.
