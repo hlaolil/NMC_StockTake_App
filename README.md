@@ -23,7 +23,11 @@ and at the end **Save File** or **Share**, then upload it there with Read Spread
 - **Matches (N) & Next**: the shelf agrees with the system, batch and expiry too. One tap, no photo.
 - Type a count when it differs. Sums work: `3x10+4`. With a pack size on the sheet, `p` counts packs:
   `12p+5` with packs of 28 shows `= 341`. Blank means "not counted"; `0` means none there.
+- **Scan Barcode** on the square 2D code (GS1 DataMatrix) many boxes carry: it finds the item and fills
+  the batch and expiry exactly, with nothing to read off the print. The item keeps the code's product
+  number as its barcode, the same for every batch, so the box's ordinary barcode finds it too.
 - **Read Label** (or **Matches + Read Label**): only when the batch or expiry on the box differs.
+  A 2D code in the photo is used over the print.
   It fills the boxes for you to check; it never saves by itself.
 - **Scan Barcode**: jumps to the item. A new barcode is put on an item once, and is saved to the
   web app with the counts, so after that the box is found by scanning.
@@ -43,10 +47,20 @@ post it until it is counted again.
 
 ## Receiving
 
-**Linked:** open the delivery on the web app's Receive page and upload its invoice as usual. On the
+**Paper invoice:** on the phone's start screen, under the open delivery, tap **Photograph the paper
+invoice**. Hold the phone flat over the page; a long invoice is photographed a part at a time and the
+lines are added together. Each line shows the item, quantity, price and the supplier's code as read;
+a line whose quantity x price no longer comes to its printed total is marked to check. Choose whether
+the quantities are packs (usual) or single units, correct anything misread, and **Send**: the lines go
+to the delivery as if the invoice had been uploaded, and come straight back to check box by box.
+
+**Linked:** open the delivery on the web app's Receive page and upload its invoice as usual (or
+photograph it, above). On the
 phone, the start screen lists open deliveries; tap one and its invoice lines come to the phone. For
 each box: **Scan Barcode** to jump to its line, enter the units received (`2p` for two packs), and
-**Read Label** for batch and expiry. A count that differs from the invoice shows *Short by ...* at
+**Read Label** for batch and expiry. **Matches Invoice & Next** takes one tap when the box agrees with the invoice (once the batch and
+expiry are in). Scanning a box that is one of our items but on no line yet asks which invoice line it
+is, and puts that line on our item. A count that differs from the invoice shows *Short by ...* at
 once. **Send to Web App** fills the delivery's lines; differences are in red there with the note,
 and nothing is received until **Add These Lines** is pressed on the delivery page.
 
