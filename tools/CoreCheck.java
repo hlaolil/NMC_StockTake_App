@@ -92,7 +92,58 @@ public class CoreCheck {
                     + ", expiry " + (l[2].isEmpty() ? "none" : l[2]), b.equals(l[1]) && e.equals(l[2]), "batch=" + b + " expiry=" + e);
         }
 
-        System.out.println("\n--- Receiving: the invoice names it its own way ---");
+        System.out.println("\n--- A paper invoice, photographed ---");
+        String[][] inv = {
+                {"7701 CETRIZINE 10MG TAB X30 2 6.00 12.00", "7701|CETRIZINE 10MG TAB X30|2|6.00|12.00"},
+                {"AMOXIL 500MG CAPS 28S 1 R40.00 R40.00", "|AMOXIL 500MG CAPS 28S|1|40.00|40.00"},
+                {"2 PANADO TABS 500 MG 100'S 25.50 51.00", "|PANADO TABS 500 MG 100'S|2|25.50|51.00"},     // quantity first
+                {"PARACETAMOL 500MG TABS 1000 10 85,50 855,00", "|PARACETAMOL 500MG TABS|10|85.50|855.00"}, // comma decimals
+                {"IBUPROFEN 400MG 10 1 234.50 12 345.00", "|IBUPROFEN 400MG|10|1234.50|12345.00"},     // thousands gaps
+                {"OMEPRAZOLE 20MG CAPS 28'S 5 3O.OO 150.00", "|OMEPRAZOLE 20MG CAPS 28'S|5|30.00|150.00"}, // O for 0
+                {"CREPE BANDAGE 10CM 12 4.20 0% 50.40", "|CREPE BANDAGE 10CM|12|4.20|50.40"},          // a VAT rate column
+                {"METFORMIN 500MG TAB 3 15.00 45.00 15% 51.75", "|METFORMIN 500MG TAB|3|15.00|45.00"},
+                {"SUBTOTAL 1 012.00", "null"}, {"VAT 15% 151.80", "null"}, {"TOTAL 1 163.80", "null"},
+                {"INVOICE NO 12345 DATE 12/11/2026", "null"}, {"ITEM CODE DESCRIPTION QTY PRICE TOTAL", "null"},
+        };
+        for (String[] r : inv) {
+            String got = String.valueOf(InvoiceReader.line(r[0]));
+            check("invoice row \"" + r[0] + "\" -> " + r[1], got.equals(r[1]), got);
+        }
+        List<InvoiceReader.Piece> pcs = new ArrayList<>();
+        pcs.add(new InvoiceReader.Piece("CETRIZINE 10MG TAB", 10, 100, 200, 120));
+        pcs.add(new InvoiceReader.Piece("12.00", 500, 103, 550, 122));     // columns read in any order
+        pcs.add(new InvoiceReader.Piece("2", 300, 102, 310, 121));
+        pcs.add(new InvoiceReader.Piece("6.00", 400, 101, 440, 119));
+        pcs.add(new InvoiceReader.Piece("AMOXIL 500MG", 10, 130, 200, 150));
+        pcs.add(new InvoiceReader.Piece("1", 300, 131, 310, 151));
+        pcs.add(new InvoiceReader.Piece("40.00", 400, 129, 440, 149));
+        pcs.add(new InvoiceReader.Piece("40.00", 500, 132, 550, 152));
+        List<InvoiceReader.Line> got = InvoiceReader.read(pcs);
+        check("pieces at the same height make one row, read left to right",
+                got.size() == 2 && got.get(0).toString().equals("|CETRIZINE 10MG TAB|2|6.00|12.00"), got);
+        check("sent as the web app reads an invoice", InvoiceReader.toCsv(got).startsWith(
+                "Medication,Supplier code,Quantity,Unit price,Total\r\nCETRIZINE 10MG TAB,,2,6.00,12.00"), InvoiceReader.toCsv(got));
+
+
+        String gs = "\u001D";
+        Gs1 g1 = Gs1.parse("0106001234567890" + "17280331" + "10AB123" + gs + "21XYZ999");
+        check("product, expiry and batch from a 2D code", g1 != null && g1.gtin.equals("6001234567890")
+                && g1.expiry.equals("31/03/2028") && g1.batch.equals("AB123"), g1 == null ? "null" : g1.gtin + " " + g1.expiry + " " + g1.batch);
+        Gs1 g2 = Gs1.parse("010600123456789010K24-77" + gs + "17270600");
+        check("batch first, then an expiry with day 00 (end of the month)", g2 != null && g2.batch.equals("K24-77")
+                && g2.expiry.equals("06/2027"), g2 == null ? "null" : g2.batch + " " + g2.expiry);
+        Gs1 g3 = Gs1.parse("(01)06001234567890(17)290131(10)LOT5");
+        check("written out with brackets", g3 != null && g3.expiry.equals("31/01/2029") && g3.batch.equals("LOT5"), "");
+        Gs1 g4 = Gs1.parse("]d20106001234567890172803311012");
+        check("with the scanner's prefix, batch running to the end", g4 != null && g4.batch.equals("12"), g4 == null ? "null" : g4.batch);
+        check("an ordinary EAN-13 is not a 2D code", Gs1.parse("6001234567890") == null, "");
+        check("a 2D code is kept as its product number, the same for every batch",
+                StockSheet.cleanBarcode("0106001234567890172803311" + "0AB1").equals("6001234567890")
+                        && StockSheet.cleanBarcode("01060012345678901729013110ZZ9").equals("6001234567890"), "");
+        check("so a box with a 2D code finds the item linked by its ordinary barcode",
+                Gs1.barcodeKey("06001234567890").equals("6001234567890"), "");
+
+
         String invLines = "Line,Code,Medication,Quantity,Pack size,Price per pack,Batch,Expiry date,Barcode,Note,Checked,Received,Checked by,Invoice name,On list\r\n"
                 + "1,,AMOXIL 500MG CAPS 28S,56,1,40,,,,,,,,AMOXIL 500MG CAPS 28S,no\r\n"
                 + "2,MED-0001,\"Paracetamol tabs, 500 mg\",100,1,0.5,,,,,,,,PANADO 500MG,yes\r\n"

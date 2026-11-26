@@ -8,6 +8,7 @@ import androidx.core.content.FileProvider
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.nmc.stocktake.core.CountExpression
+import com.nmc.stocktake.core.InvoiceReader
 import com.nmc.stocktake.core.StockSheet
 import com.nmc.stocktake.data.SessionStore
 import com.nmc.stocktake.data.WebLink
@@ -41,6 +42,11 @@ class StockTakeViewModel(app: Application) : AndroidViewModel(app) {
         val deliveries: List<WebLink.Delivery> = emptyList(),  // open on the web app
         val webDelivery: String = "",         // the delivery this receiving list came from
         val ourItems: List<StockSheet.OurItem> = emptyList(),  // our medication list, for invoice names not ours
+        // A paper invoice being read: for which delivery, the lines so far, how its quantities count.
+        val invoiceFor: WebLink.Delivery? = null,
+        val invoiceLines: List<InvoiceReader.Line> = emptyList(),
+        val invoiceUnits: Boolean = false,
+        val invoiceAskReplace: String? = null,
     ) {
         val item: StockSheet.Item? get() = sheet?.items?.getOrNull(index)
     }
@@ -159,6 +165,14 @@ class StockTakeViewModel(app: Application) : AndroidViewModel(app) {
         return null
     }
 
+    /** Receiving: the box agrees with the invoice - its quantity, and the batch and expiry on screen. */
+    fun matchesInvoice(expiry: String, batch: String, note: String): String? {
+        val it = _state.value.item ?: return null
+        if (it.invoiceQty.isBlank()) return "The invoice gives no quantity for this line - type what came"
+        if (batch.isBlank() || expiry.isBlank()) return "Fill in the batch and expiry first - scan the 2D code or tap Read Label"
+        return saveReceived(it.invoiceQty, expiry, batch, note, true)
+    }
+
     /** Receiving: this line is checked against the box. */
     fun saveReceived(qty: String, expiry: String, batch: String, note: String, checked: Boolean): String? {
         val s = _state.value
@@ -233,12 +247,11 @@ class StockTakeViewModel(app: Application) : AndroidViewModel(app) {
         ask("Getting the invoice lines...") {
             val text = web.deliveryLines(d.id)
             load(text, StockSheet.Mode.RECEIVING, "${d.reference}.csv", d.id)
-            val sheet = _state.value.sheet
-            if (sheet != null && sheet.items.any { it.needsOurItem() || it.guessed() }) {
-                try {
-                    _state.value = _state.value.copy(ourItems = StockSheet.ourItems(web.medications()))
-                } catch (e: Exception) { /* fetched again when Pick our item is tapped */ }
-            }
+            // Our list: for lines the invoice names its own way, and to know
+            // a scanned box that is on no line yet.
+            try {
+                _state.value = _state.value.copy(ourItems = StockSheet.ourItems(web.medications()))
+            } catch (e: Exception) { /* fetched again when Pick our item is tapped */ }
         }
     }
 
@@ -251,16 +264,96 @@ class StockTakeViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    /** Receiving: one of our items carrying this barcode, or null. */
+    fun ourItemFor(code: String): StockSheet.OurItem? = StockSheet.findOurBarcode(_state.value.ourItems, code)
+
     /** Put the line on screen on our item: the invoice named it its own way. */
-    fun putOnOurItem(o: StockSheet.OurItem) {
+    fun putOnOurItem(o: StockSheet.OurItem) = putOnOurItem(_state.value.index, o)
+
+    /** Put a line on our item, and show it. */
+    fun putOnOurItem(index: Int, o: StockSheet.OurItem) {
         val s = _state.value
-        val it = s.item ?: return
+        val it = s.sheet?.items?.getOrNull(index) ?: return
         StockSheet.putOnOurItem(it, o.code, o.name)
         if (it.packSize.isBlank() || it.packSize == "1") {
             if (o.packSize.isNotBlank()) it.packSize = o.packSize
         }
         if (it.barcode.isBlank() && o.barcode.isNotBlank()) { it.barcode = o.barcode; it.fileBarcode = o.barcode }
-        changed(message = "Put on ${o.name}. The web app remembers the invoice's name for next time once the line is added.")
+        changed(index, "Put on ${o.name}. The web app remembers the invoice's name for next time once the line is added.")
+    }
+
+    // ---- A paper invoice ---------------------------------------------------
+
+    fun startInvoice(d: WebLink.Delivery) {
+        _state.value = _state.value.copy(invoiceFor = d, invoiceLines = emptyList(), invoiceUnits = false,
+            invoiceAskReplace = null)
+    }
+
+    /** Lines read from one photo, added after those already read (a long invoice takes several). */
+    fun addInvoiceLines(lines: List<InvoiceReader.Line>) {
+        val s = _state.value
+        // The same line photographed twice (the photos overlap): kept once.
+        val have = s.invoiceLines.map { it.toString() }.toSet()
+        val fresh = lines.filter { it.toString() !in have }
+        _state.value = s.copy(invoiceLines = s.invoiceLines + fresh,
+            message = "${fresh.size} line(s) read" + if (fresh.size < lines.size) ", ${lines.size - fresh.size} already had" else "")
+    }
+
+    fun editInvoiceLine(i: Int, line: InvoiceReader.Line) {
+        val s = _state.value
+        if (i in s.invoiceLines.indices) _state.value = s.copy(invoiceLines = s.invoiceLines.toMutableList().also { it[i] = line })
+        else if (i == s.invoiceLines.size) _state.value = s.copy(invoiceLines = s.invoiceLines + line)
+    }
+
+    fun removeInvoiceLine(i: Int) {
+        val s = _state.value
+        if (i in s.invoiceLines.indices) _state.value = s.copy(invoiceLines = s.invoiceLines.toMutableList().also { it.removeAt(i) })
+    }
+
+    fun setInvoiceUnits(units: Boolean) {
+        _state.value = _state.value.copy(invoiceUnits = units)
+    }
+
+    /** Not replacing what is already waiting: the lines read stay here to send later. */
+    fun keepWaitingLines() {
+        _state.value = _state.value.copy(invoiceAskReplace = null)
+    }
+
+    fun cancelInvoice() {
+        _state.value = _state.value.copy(invoiceFor = null, invoiceLines = emptyList(), invoiceAskReplace = null)
+    }
+
+    /** Send the invoice's lines to its delivery, then get them to check box by box. */
+    fun sendInvoice(replace: Boolean = false) {
+        val s = _state.value
+        val d = s.invoiceFor ?: return
+        val lines = s.invoiceLines.filter { it.name.isNotBlank() }
+        if (lines.isEmpty()) { say("No lines to send - photograph the invoice first"); return }
+        val bad = lines.indexOfFirst { it.qty.toDoubleOrNull()?.let { q -> q <= 0 } ?: true }
+        if (bad >= 0) { say("Line ${bad + 1} (${lines[bad].name}) has no quantity"); return }
+        _state.value = s.copy(invoiceAskReplace = null)
+        ask("Sending the invoice...") {
+            val msg = try {
+                web.sendInvoice(d.id, InvoiceReader.toCsv(lines), s.invoiceUnits, replace)
+            } catch (e: WebLink.Refused) {
+                if (!replace && (e.message ?: "").contains("replace")) {
+                    _state.value = _state.value.copy(invoiceAskReplace = e.message)
+                    return@ask
+                }
+                throw e
+            }
+            _state.value = _state.value.copy(invoiceFor = null, invoiceLines = emptyList(), message = msg)
+            val dels = web.deliveries()
+            _state.value = _state.value.copy(deliveries = dels)
+            dels.firstOrNull { it.id == d.id }?.let { fresh ->
+                val text = web.deliveryLines(fresh.id)
+                load(text, StockSheet.Mode.RECEIVING, "${fresh.reference}.csv", fresh.id)
+                try {
+                    _state.value = _state.value.copy(ourItems = StockSheet.ourItems(web.medications()))
+                } catch (e: Exception) { }
+                say(msg)
+            }
+        }
     }
 
     fun sendToWeb() {

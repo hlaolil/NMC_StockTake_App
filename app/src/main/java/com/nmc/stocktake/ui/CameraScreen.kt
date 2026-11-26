@@ -39,6 +39,34 @@ fun CameraScreen(
     onResult: (OcrProcessor.LabelResult) -> Unit,
     onCancel: () -> Unit,
 ) {
+    PhotoCamera(itemName, "Fill the frame with the batch and expiry print (or the square 2D code)",
+        "Read Label", "Reading the label...", onCancel) { image, done, fail ->
+        readImage(image, onDone = { done(); onResult(it) }, onFail = { fail(it) })
+    }
+}
+
+/**
+ * A paper invoice, a photo at a time: hold the phone flat over the page so
+ * the rows run straight across. Long invoices take several photos.
+ */
+@Composable
+fun InvoiceCameraScreen(
+    title: String,
+    onLines: (List<com.nmc.stocktake.core.InvoiceReader.Line>) -> Unit,
+    onCancel: () -> Unit,
+) {
+    PhotoCamera(title, "Hold the phone flat over the invoice so the lines run straight across. " +
+            "A long invoice: one part at a time.",
+        "Read Invoice", "Reading the invoice...", onCancel) { image, done, fail ->
+        readInvoiceImage(image, onDone = { done(); onLines(it) }, onFail = { fail(it) })
+    }
+}
+
+@Composable
+private fun PhotoCamera(
+    title: String, hint: String, button: String, busyText: String, onCancel: () -> Unit,
+    onPhoto: (ImageProxy, done: () -> Unit, fail: (String) -> Unit) -> Unit,
+) {
     val context = LocalContext.current
     var allowed by remember {
         mutableStateOf(
@@ -95,9 +123,8 @@ fun CameraScreen(
                 .background(Color(0xAA000000)).statusBarsPadding().padding(12.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            Text(itemName, color = Color.White, style = MaterialTheme.typography.titleMedium)
-            Text("Fill the frame with the batch and expiry print", color = Color.White,
-                style = MaterialTheme.typography.bodySmall)
+            Text(title, color = Color.White, style = MaterialTheme.typography.titleMedium)
+            Text(hint, color = Color.White, style = MaterialTheme.typography.bodySmall, textAlign = TextAlign.Center)
         }
         Column(
             Modifier.align(Alignment.BottomCenter).fillMaxWidth()
@@ -107,7 +134,7 @@ fun CameraScreen(
             problem?.let { Text(it, color = Color(0xFFFCA5A5)); Spacer(Modifier.height(8.dp)) }
             if (busy) {
                 CircularProgressIndicator(color = Color.White)
-                Text("Reading the label...", color = Color.White)
+                Text(busyText, color = Color.White)
             } else {
                 Button(onClick = {
                     busy = true
@@ -116,9 +143,7 @@ fun CameraScreen(
                         ContextCompat.getMainExecutor(context),
                         object : ImageCapture.OnImageCapturedCallback() {
                             override fun onCaptureSuccess(image: ImageProxy) {
-                                readImage(image,
-                                    onDone = { busy = false; onResult(it) },
-                                    onFail = { busy = false; problem = it })
+                                onPhoto(image, { busy = false }, { busy = false; problem = it })
                             }
 
                             override fun onError(exception: ImageCaptureException) {
@@ -126,7 +151,7 @@ fun CameraScreen(
                                 problem = "The photo did not take: ${exception.message}"
                             }
                         })
-                }, modifier = Modifier.fillMaxWidth()) { Text("Read Label") }
+                }, modifier = Modifier.fillMaxWidth()) { Text(button) }
                 TextButton(onClick = onCancel) { Text("Cancel", color = Color.White) }
             }
         }
@@ -147,4 +172,23 @@ private fun readImage(
     }
     val input = InputImage.fromMediaImage(media, proxy.imageInfo.rotationDegrees)
     OcrProcessor.read(input, onDone, onFail, onFinally = { proxy.close() })
+}
+
+@OptIn(ExperimentalGetImage::class)
+private fun readInvoiceImage(
+    proxy: ImageProxy,
+    onDone: (List<com.nmc.stocktake.core.InvoiceReader.Line>) -> Unit,
+    onFail: (String) -> Unit,
+) {
+    val media = proxy.image
+    if (media == null) {
+        proxy.close()
+        onFail("The photo was empty - try again")
+        return
+    }
+    val input = InputImage.fromMediaImage(media, proxy.imageInfo.rotationDegrees)
+    OcrProcessor.readInvoice(input, { lines ->
+        if (lines.isEmpty()) onFail("No invoice lines could be read - hold the phone flat and closer, with good light")
+        else onDone(lines)
+    }, onFail, onFinally = { proxy.close() })
 }

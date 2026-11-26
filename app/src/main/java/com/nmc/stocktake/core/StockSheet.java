@@ -286,9 +286,37 @@ public final class StockSheet {
         return -1;
     }
 
-    /** Digits and letters only, as the web app keeps them. */
+    /**
+     * Digits and letters only, as the web app keeps them - and from a 2D
+     * (GS1) code only its product number, the same for every batch. A code
+     * stored whole before this still finds its item.
+     */
     public static String cleanBarcode(String code) {
-        return code == null ? "" : code.replaceAll("[^0-9A-Za-z]", "");
+        return Gs1.barcodeKey(code);
+    }
+
+    /** One of our items carrying this barcode, or null. */
+    public static OurItem findOurBarcode(List<OurItem> ours, String code) {
+        String c = cleanBarcode(code);
+        if (c.isEmpty()) return null;
+        for (OurItem o : ours) if (c.equals(cleanBarcode(o.barcode))) return o;
+        return null;
+    }
+
+    /** Receiving: the lines still to be put on one of our items (or only guessed), in order. */
+    public List<Integer> linesNotOurs() {
+        List<Integer> out = new ArrayList<>();
+        for (int i = 0; i < items.size(); i++) {
+            Item it = items.get(i);
+            if (it.needsOurItem() || it.guessed()) out.add(i);
+        }
+        return out;
+    }
+
+    /** The line already on this item of ours, or -1. */
+    public int findName(String name) {
+        for (int i = 0; i < items.size(); i++) if (items.get(i).name.equalsIgnoreCase(name)) return i;
+        return -1;
     }
 
     /** Done here, or by another phone. */

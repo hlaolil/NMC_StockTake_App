@@ -78,6 +78,16 @@ class WebLink(context: Context) {
     /** Our medication list as CSV (Code, Medication, Pack size, Barcode), to put invoice lines on our items. */
     suspend fun medications(): String = call("GET", "/api/phone/medications", null)
 
+    /**
+     * A paper invoice read on the phone, sent as the delivery's invoice lines.
+     * units: its quantities are single units (packs otherwise). replace: put
+     * it over lines already waiting there.
+     */
+    suspend fun sendInvoice(id: String, csv: String, units: Boolean, replace: Boolean): String =
+        JSONObject(call("POST", "/api/phone/delivery/" + URLEncoder.encode(id, "UTF-8") + "/invoice?qty=" +
+            (if (units) "units" else "packs") + (if (replace) "&replace=1" else ""), csv))
+            .optString("message", "Sent.")
+
     /** Send the lines as checked; returns the web app's message. */
     suspend fun sendDelivery(id: String, csv: String): String =
         JSONObject(call("POST", "/api/phone/delivery/" + URLEncoder.encode(id, "UTF-8") + "/lines", csv))

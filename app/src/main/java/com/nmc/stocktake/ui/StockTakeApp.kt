@@ -29,6 +29,8 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.nmc.stocktake.core.CountExpression
 import com.nmc.stocktake.core.Expiry
+import com.nmc.stocktake.core.Gs1
+import com.nmc.stocktake.core.InvoiceReader
 import com.nmc.stocktake.core.StockSheet
 import com.nmc.stocktake.data.WebLink
 import com.nmc.stocktake.ocr.OcrProcessor
@@ -56,12 +58,23 @@ fun StockTakeApp(vm: StockTakeViewModel = viewModel()) {
     var camera by remember { mutableStateOf<CameraFor?>(null) }
     var showList by remember { mutableStateOf(false) }
     var pickOurs by remember { mutableStateOf(false) }   // putting an invoice line on our item
+    var invoiceCamera by remember { mutableStateOf(false) }   // photographing a paper invoice
     var lastLabel by remember { mutableStateOf<OcrProcessor.LabelResult?>(null) }
     var confirmMatch by remember { mutableStateOf(false) }
     var unknownBarcode by remember { mutableStateOf<String?>(null) }   // scanned, on no item yet
     var linkingBarcode by remember { mutableStateOf<String?>(null) }   // choosing its item from the list
+    var scanFill by remember { mutableStateOf<Gs1?>(null) }            // a 2D code's batch and expiry, to fill in
+    var boxOfOurs by remember { mutableStateOf<StockSheet.OurItem?>(null) }  // scanned: ours, on no line yet
     var draft by remember(state.index, state.sheet) { mutableStateOf(Draft.of(state.item)) }
     LaunchedEffect(state.index, state.sheet) { lastLabel = null }
+    // After a scan has moved to its item: the 2D code's batch and expiry go in the boxes to check.
+    LaunchedEffect(state.index, state.sheet, scanFill) {
+        scanFill?.let { g ->
+            draft = draft.copy(batch = g.batch.ifBlank { draft.batch }, expiry = g.expiry.ifBlank { draft.expiry })
+            if (g.batch.isNotBlank() || g.expiry.isNotBlank()) vm.say("Batch and expiry read from the 2D code - check them against the box")
+            scanFill = null
+        }
+    }
 
     LaunchedEffect(state.message) {
         state.message?.let { snackbar.showSnackbar(it); vm.say(null) }
@@ -89,6 +102,13 @@ fun StockTakeApp(vm: StockTakeViewModel = viewModel()) {
                         expiry = r.expiry.ifBlank { draft.expiry },
                     )
                     lastLabel = r
+                    // The photo had the box's 2D code: its product number becomes the
+                    // item's barcode, so the next box is found by scanning.
+                    val cur = state.item
+                    if (r.barcode.isNotBlank() && cur != null && cur.barcode.isBlank()
+                        && vm.findBarcode(r.barcode) < 0 && !cur.needsOurItem()) {
+                        vm.linkBarcode(state.index, r.barcode)
+                    }
                     camera = null
                     if (purpose == CameraFor.MATCH) confirmMatch = true
                 },
@@ -100,8 +120,20 @@ fun StockTakeApp(vm: StockTakeViewModel = viewModel()) {
                 qrOnly = false,
                 onCode = { code ->
                     camera = null
+                    val g = Gs1.parse(code)
                     val i = vm.findBarcode(code)
-                    if (i >= 0) vm.goTo(i) else unknownBarcode = code
+                    val ours = if (i < 0 && state.sheet?.mode == StockSheet.Mode.RECEIVING) vm.ourItemFor(code) else null
+                    when {
+                        i >= 0 -> { vm.goTo(i); scanFill = g }
+                        ours != null -> {
+                            // One of our items, on no line by its barcode: its line, or a line
+                            // the invoice named its own way.
+                            val line = state.sheet?.findName(ours.name) ?: -1
+                            if (line >= 0) { vm.goTo(line); scanFill = g }
+                            else { boxOfOurs = ours; scanFill = g }
+                        }
+                        else -> { unknownBarcode = g?.gtin ?: code; scanFill = g }
+                    }
                 },
                 onCancel = { camera = null },
             )
@@ -116,6 +148,35 @@ fun StockTakeApp(vm: StockTakeViewModel = viewModel()) {
         return
     }
 
+    // ---- A paper invoice: photograph, check, send ------------------------
+    state.invoiceFor?.let { d ->
+        if (invoiceCamera) {
+            BackHandler { invoiceCamera = false }
+            InvoiceCameraScreen("Invoice for ${d.reference}",
+                onLines = { vm.addInvoiceLines(it); invoiceCamera = false },
+                onCancel = { invoiceCamera = false })
+        } else {
+            BackHandler { vm.cancelInvoice() }
+            Scaffold(snackbarHost = { SnackbarHost(snackbar) }) { pad ->
+                InvoiceReview(Modifier.padding(pad), d, state,
+                    onPhoto = { invoiceCamera = true },
+                    onEdit = vm::editInvoiceLine, onRemove = vm::removeInvoiceLine,
+                    onUnits = vm::setInvoiceUnits,
+                    onSend = { vm.sendInvoice() }, onCancel = { vm.cancelInvoice() })
+            }
+            state.invoiceAskReplace?.let { why ->
+                AlertDialog(
+                    onDismissRequest = { vm.keepWaitingLines() },
+                    title = { Text("Replace the waiting lines?") },
+                    text = { Text("$why\nReplacing drops what phones already checked on them.") },
+                    confirmButton = { Button(onClick = { vm.sendInvoice(replace = true) }) { Text("Replace") } },
+                    dismissButton = { TextButton(onClick = { vm.keepWaitingLines() }) { Text("Keep them") } },
+                )
+            }
+        }
+        return
+    }
+
     val sheet = state.sheet
     if (sheet == null) {
         Scaffold(snackbarHost = { SnackbarHost(snackbar) }) { pad ->
@@ -125,6 +186,7 @@ fun StockTakeApp(vm: StockTakeViewModel = viewModel()) {
                 onPasteLink = { code -> vm.linkWeb(code) },
                 onGetSheet = { g, label -> vm.getSheetFromWeb(g, label) },
                 onGetDelivery = { d -> vm.getDeliveryFromWeb(d) },
+                onPhotoInvoice = { d -> vm.startInvoice(d); invoiceCamera = true },
                 onRefresh = { vm.refreshWeb() },
                 onUnlink = { vm.unlinkWeb() })
         }
@@ -182,6 +244,7 @@ fun StockTakeApp(vm: StockTakeViewModel = viewModel()) {
                 ReceiveFields(
                     draft = draft, onDraft = { draft = it }, item = item,
                     onSave = { checked -> vm.saveReceived(draft.qty, draft.expiry, draft.batch, draft.note, checked)?.let(vm::say) },
+                    onMatch = { vm.matchesInvoice(draft.expiry, draft.batch, draft.note)?.let(vm::say) },
                     onLabel = { camera = CameraFor.LABEL },
                 )
             }
@@ -233,6 +296,29 @@ fun StockTakeApp(vm: StockTakeViewModel = viewModel()) {
         )
     }
 
+    boxOfOurs?.let { o ->
+        val lines = remember(state.rev) { state.sheet?.linesNotOurs() ?: emptyList() }
+        AlertDialog(
+            onDismissRequest = { boxOfOurs = null; scanFill = null },
+            title = { Text("Which invoice line is this?") },
+            text = {
+                Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("The box is our ${o.name}. No line has that name yet.")
+                    if (lines.isEmpty()) Text("Every line is already on one of our items - it may not be on this invoice.")
+                    for (i in lines) {
+                        val it = state.sheet?.items?.getOrNull(i) ?: continue
+                        OutlinedButton(onClick = { boxOfOurs = null; vm.putOnOurItem(i, o) }, modifier = Modifier.fillMaxWidth()) {
+                            Text("${it.invoiceName.ifBlank { it.name }}${if (it.invoiceQty.isNotBlank()) " (${it.invoiceQty})" else ""}",
+                                maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        }
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = { TextButton(onClick = { boxOfOurs = null; scanFill = null }) { Text("None of these") } },
+        )
+    }
+
     unknownBarcode?.let { code ->
         AlertDialog(
             onDismissRequest = { unknownBarcode = null },
@@ -269,6 +355,7 @@ private fun StartScreen(
     onImport: (Uri, StockSheet.Mode) -> Unit,
     onScanLink: () -> Unit, onPasteLink: (String) -> String?,
     onGetSheet: (String, String) -> Unit, onGetDelivery: (WebLink.Delivery) -> Unit,
+    onPhotoInvoice: (WebLink.Delivery) -> Unit,
     onRefresh: () -> Unit, onUnlink: () -> Unit,
 ) {
     var mode by remember { mutableStateOf(StockSheet.Mode.STOCK_TAKE) }
@@ -285,7 +372,7 @@ private fun StartScreen(
 
         if (state.linked) {
             WebStart(state.webOpen, state.busy != null, onGetSheet, onRefresh, onUnlink)
-            WebDeliveries(state.deliveries, state.busy != null, onGetDelivery)
+            WebDeliveries(state.deliveries, state.busy != null, onGetDelivery, onPhotoInvoice)
         } else {
             LinkCard(onScanLink, onPasteLink)
         }
@@ -372,12 +459,13 @@ private fun WebStart(
 }
 
 @Composable
-private fun WebDeliveries(deliveries: List<WebLink.Delivery>, busy: Boolean, onGet: (WebLink.Delivery) -> Unit) {
+private fun WebDeliveries(deliveries: List<WebLink.Delivery>, busy: Boolean, onGet: (WebLink.Delivery) -> Unit,
+                          onPhoto: (WebLink.Delivery) -> Unit) {
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("Receiving", style = MaterialTheme.typography.titleMedium)
             if (deliveries.isEmpty()) {
-                Text("No delivery is open on the web app. Open one on the Receive page and upload its invoice, then tap Refresh.")
+                Text("No delivery is open on the web app. Open one on the Receive page, then tap Refresh.")
             }
             for (d in deliveries) {
                 val what = listOf(d.supplier, d.invoices.takeIf { it.isNotBlank() }?.let { "invoice $it" })
@@ -387,9 +475,13 @@ private fun WebDeliveries(deliveries: List<WebLink.Delivery>, busy: Boolean, onG
                         Text("${d.reference}${if (what.isNotEmpty()) " - $what" else ""}: ${d.lines} line(s)" +
                             if (d.checked > 0) ", ${d.checked} checked" else "")
                     }
+                    TextButton(onClick = { onPhoto(d) }, enabled = !busy) { Text("Photograph the paper invoice again") }
                 } else {
-                    Text("${d.reference}${if (what.isNotEmpty()) " - $what" else ""}: upload the invoice on the delivery page first.",
+                    Text("${d.reference}${if (what.isNotEmpty()) " - $what" else ""}: no invoice lines yet.",
                         style = MaterialTheme.typography.bodySmall)
+                    Button(onClick = { onPhoto(d) }, enabled = !busy, modifier = Modifier.fillMaxWidth()) {
+                        Text("Photograph the paper invoice")
+                    }
                 }
             }
         }
@@ -492,6 +584,85 @@ private fun InvoiceName(item: StockSheet.Item, canPick: Boolean, onPick: () -> U
             }
         }
         differs -> Text("On the invoice: ${item.invoiceName}", style = MaterialTheme.typography.bodySmall)
+    }
+}
+
+/**
+ * The lines read off a paper invoice, to check against the paper and
+ * correct before they go to the delivery. The figures add up line by line
+ * (quantity x price = total), so a misread figure shows.
+ */
+@Composable
+private fun InvoiceReview(
+    modifier: Modifier, d: WebLink.Delivery, state: StockTakeViewModel.UiState,
+    onPhoto: () -> Unit, onEdit: (Int, InvoiceReader.Line) -> Unit, onRemove: (Int) -> Unit,
+    onUnits: (Boolean) -> Unit, onSend: () -> Unit, onCancel: () -> Unit,
+) {
+    val lines = state.invoiceLines
+    val sum = lines.sumOf { (it.qty.toDoubleOrNull() ?: 0.0) * (it.price.replace(',', '.').toDoubleOrNull() ?: 0.0) }
+    LazyColumn(modifier.fillMaxSize().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        item {
+            Spacer(Modifier.height(8.dp))
+            Text("Paper invoice for ${d.reference}", style = MaterialTheme.typography.titleLarge)
+            Text(if (lines.isEmpty()) "Photograph the invoice. A long one: a part at a time - the lines are added together."
+                 else "${lines.size} line(s) read. Check each against the paper and correct anything misread.",
+                style = MaterialTheme.typography.bodyMedium)
+            state.busy?.let { Busy(it) }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                RadioButton(!state.invoiceUnits, { onUnits(false) }); Text("Quantities are packs")
+                Spacer(Modifier.width(12.dp))
+                RadioButton(state.invoiceUnits, { onUnits(true) }); Text("Single units")
+            }
+            OutlinedButton(onClick = onPhoto, modifier = Modifier.fillMaxWidth()) {
+                Text(if (lines.isEmpty()) "Photograph the invoice" else "Photograph more of the invoice")
+            }
+        }
+        items(lines.size) { i -> InvoiceLineCard(i, lines[i], onEdit, onRemove) }
+        item {
+            TextButton(onClick = { onEdit(lines.size, InvoiceReader.Line("", "", "", "", "")) }) { Text("+ Add a line by hand") }
+            if (lines.isNotEmpty()) {
+                Text("Lines add up to M${"%.2f".format(sum)} - compare with the invoice's total before VAT.",
+                    fontWeight = FontWeight.Bold)
+            }
+            Button(onClick = onSend, enabled = lines.isNotEmpty() && state.busy == null, modifier = Modifier.fillMaxWidth()) {
+                Text("Send to ${d.reference}")
+            }
+            Text("The lines then come back to check box by box, as if the invoice were uploaded. " +
+                "Names the invoice gives its own way are matched to our items as before.",
+                style = MaterialTheme.typography.bodySmall)
+            TextButton(onClick = onCancel, modifier = Modifier.fillMaxWidth()) { Text("Cancel", color = MaterialTheme.colorScheme.error) }
+            Spacer(Modifier.height(24.dp))
+        }
+    }
+}
+
+@Composable
+private fun InvoiceLineCard(i: Int, l: InvoiceReader.Line, onEdit: (Int, InvoiceReader.Line) -> Unit, onRemove: (Int) -> Unit) {
+    val q = l.qty.toDoubleOrNull()
+    val p = l.price.replace(',', '.').toDoubleOrNull()
+    val t = l.total.replace(',', '.').toDoubleOrNull()
+    // The printed total no longer matches quantity x price: something was misread or changed.
+    val off = q != null && p != null && t != null && kotlin.math.abs(q * p - t) > 0.02
+    Card(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                OutlinedTextField(l.name, { onEdit(i, l.with(l.code, it, l.qty, l.price)) }, label = { Text("Item") },
+                    singleLine = true, modifier = Modifier.weight(1f))
+                TextButton(onClick = { onRemove(i) }) { Text("Remove") }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                OutlinedTextField(l.qty, { onEdit(i, l.with(l.code, l.name, it, l.price)) }, label = { Text("Qty") },
+                    singleLine = true, isError = q == null || q <= 0,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.weight(1f))
+                OutlinedTextField(l.price, { onEdit(i, l.with(l.code, l.name, l.qty, it)) }, label = { Text("Price") },
+                    singleLine = true, isError = off,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), modifier = Modifier.weight(1f))
+                OutlinedTextField(l.code, { onEdit(i, l.with(it, l.name, l.qty, l.price)) }, label = { Text("Code") },
+                    singleLine = true, modifier = Modifier.weight(1f))
+            }
+            if (off) Text("On the invoice the line total is ${l.total} - check the quantity and price.",
+                color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+        }
     }
 }
 
@@ -616,9 +787,17 @@ private fun CountFields(
 @Composable
 private fun ReceiveFields(
     draft: Draft, onDraft: (Draft) -> Unit, item: StockSheet.Item,
-    onSave: (Boolean) -> Unit, onLabel: () -> Unit,
+    onSave: (Boolean) -> Unit, onMatch: () -> Unit, onLabel: () -> Unit,
 ) {
     val packs = item.packUnits()
+    if (item.invoiceQty.isNotBlank() && !item.needsOurItem()) {
+        // The usual case: the box agrees with the invoice. One tap, once batch and expiry are in.
+        Button(onClick = onMatch, modifier = Modifier.fillMaxWidth(),
+            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary)) {
+            Text("Matches Invoice (${item.invoiceQty}) & Next")
+        }
+        Text("Or type what came if it differs:", style = MaterialTheme.typography.bodySmall)
+    }
     // What the quantity comes to, and how it compares with the invoice.
     val (said, wrong) = remember(draft.qty, packs, item.invoiceQty) {
         try {
