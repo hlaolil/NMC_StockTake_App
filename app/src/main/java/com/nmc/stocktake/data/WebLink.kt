@@ -121,7 +121,7 @@ class WebLink(context: Context) {
                 val msg = try { JSONObject(text).optString("message") } catch (e: Exception) { "" }
                 throw Refused(msg.ifBlank { "The web app answered $code" })
             }
-            text.removePrefix("﻿")
+            text.removePrefix("\uFEFF")
         } catch (e: IOException) {
             throw Refused("Could not reach the web app - check the signal and try again")
         } finally {

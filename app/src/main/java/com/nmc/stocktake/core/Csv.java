@@ -17,7 +17,7 @@ public final class Csv {
     public static List<List<String>> parse(String text) {
         List<List<String>> rows = new ArrayList<>();
         if (text == null) return rows;
-        if (!text.isEmpty() && text.charAt(0) == '﻿') text = text.substring(1);
+        if (!text.isEmpty() && text.charAt(0) == '\uFEFF') text = text.substring(1);
         List<String> row = new ArrayList<>();
         StringBuilder cell = new StringBuilder();
         boolean quoted = false;

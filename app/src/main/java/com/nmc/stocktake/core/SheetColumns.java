@@ -57,7 +57,7 @@ public final class SheetColumns {
     }
 
     static String key(String heading) {
-        return heading == null ? "" : heading.toLowerCase().replaceAll("[^a-z0-9]+", " ").trim();
+        return heading == null ? "" : heading.toLowerCase(java.util.Locale.ROOT).replaceAll("[^a-z0-9]+", " ").trim();
     }
 
     /** The heading row and its columns, or null if no row names a medication column. */

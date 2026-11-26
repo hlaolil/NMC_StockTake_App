@@ -102,7 +102,7 @@ public final class StockSheet {
             it.line = cols.get(row, SheetColumns.LINE);
             it.countedBy = cols.get(row, SheetColumns.COUNTED_BY);
             it.invoiceName = cols.get(row, SheetColumns.INVOICE_NAME);
-            it.onList = cols.get(row, SheetColumns.ON_LIST).toLowerCase();
+            it.onList = cols.get(row, SheetColumns.ON_LIST).toLowerCase(java.util.Locale.ROOT);
             if (mode == Mode.RECEIVING && isYes(cols.get(row, SheetColumns.CHECKED))) {
                 // Checked before (this phone or another): carry on from there.
                 it.done = true;
@@ -127,7 +127,7 @@ public final class StockSheet {
     }
 
     static boolean isYes(String s) {
-        String t = s == null ? "" : s.trim().toLowerCase();
+        String t = s == null ? "" : s.trim().toLowerCase(java.util.Locale.ROOT);
         return t.equals("yes") || t.equals("y") || t.equals("true") || t.equals("1") || t.equals("x") || t.equals("checked");
     }
 
@@ -253,10 +253,10 @@ public final class StockSheet {
      * puts "Amoxicillin caps, 500 mg" near the top. Only a suggestion.
      */
     public static List<OurItem> likely(List<OurItem> ours, String invoiceName, int limit) {
-        String[] words = invoiceName.toLowerCase().split("[^a-z0-9]+");
+        String[] words = invoiceName.toLowerCase(java.util.Locale.ROOT).split("[^a-z0-9]+");
         List<Object[]> scored = new ArrayList<>();
         for (OurItem o : ours) {
-            String n = o.name.toLowerCase();
+            String n = o.name.toLowerCase(java.util.Locale.ROOT);
             String bare = n.replaceAll("[^a-z0-9]", "");
             int score = 0;
             for (String w : words) {
